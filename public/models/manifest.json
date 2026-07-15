@@ -1,0 +1,44 @@
+[
+  {
+    "frameId": "cyberpunk_glasses",
+    "glbUrl": "/models/cyberpunk_glasses_aligned.glb",
+    "jsonUrl": "/models/cyberpunk_glasses.json",
+    "displayName": "★ Cyberpunk — Johnny Silverhand"
+  },
+  {
+    "frameId": "frame001",
+    "glbUrl": "/models/frame001.glb",
+    "jsonUrl": "/models/frame001.json",
+    "displayName": "Round Classic"
+  },
+  {
+    "frameId": "frame002",
+    "glbUrl": "/models/frame002.glb",
+    "jsonUrl": "/models/frame002.json",
+    "displayName": "Everyday Square"
+  },
+  {
+    "frameId": "frame003",
+    "glbUrl": "/models/frame003.glb",
+    "jsonUrl": "/models/frame003.json",
+    "displayName": "Bold Rectangle"
+  },
+  {
+    "frameId": "frame004",
+    "glbUrl": "/models/frame004.glb",
+    "jsonUrl": "/models/frame004.json",
+    "displayName": "Slim Oval"
+  },
+  {
+    "frameId": "frame005",
+    "glbUrl": "/models/frame005.glb",
+    "jsonUrl": "/models/frame005.json",
+    "displayName": "Retro Wayfarer"
+  },
+  {
+    "frameId": "frame006",
+    "glbUrl": "/models/frame006.glb",
+    "jsonUrl": "/models/frame006.json",
+    "displayName": "Wide Aviator"
+  }
+]
