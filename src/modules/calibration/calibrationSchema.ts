@@ -25,6 +25,20 @@
 import { z } from 'zod';
 import type { CalibrationData, CalibrationValidationResult } from '../../core/types/calibration.types';
 
+/**
+ * Every field defaults to the identity transform, so a sidecar only has to
+ * name the axes it actually needs corrected (typically just `rotationY` plus
+ * two translations) instead of spelling out all six.
+ */
+const modelPreTransformSchema = z.object({
+  rotationX: z.number().default(0),
+  rotationY: z.number().default(0),
+  rotationZ: z.number().default(0),
+  translateX: z.number().default(0),
+  translateY: z.number().default(0),
+  translateZ: z.number().default(0),
+});
+
 const calibrationDataSchema = z.object({
   frameId: z.string().min(1, 'frameId must be a non-empty string'),
   frameWidth: z.number().positive('frameWidth must be a positive number (mm)'),
@@ -39,6 +53,7 @@ const calibrationDataSchema = z.object({
   defaultScale: z.number().positive('defaultScale must be a positive number'),
   scaleX: z.number().optional(),
   scaleZ: z.number().optional(),
+  modelPreTransform: modelPreTransformSchema.optional(),
 });
 
 

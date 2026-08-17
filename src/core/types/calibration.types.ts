@@ -25,6 +25,40 @@
  */
 
 /**
+ * A one-time correction baked INSIDE the loaded model group, before any
+ * tracking transform touches it — the fix for vendor GLBs that aren't
+ * authored on the renderer's convention (X lateral and centred, Y up with
+ * the lens centre at 0, temples running into -Z from a front plane at Z = 0).
+ *
+ * This is deliberately NOT the same lever as `CalibrationData.rotationX/Y/Z`
+ * and `offsetX/Y/Z`:
+ *   - Those are per-user FIT tuning, applied every frame to the tracked
+ *     anchor, in millimetres, composed with the head pose.
+ *   - This is a per-ASSET authoring fix, applied once at load time in the
+ *     model's own units, so everything downstream (`CalibrationEngine`'s
+ *     offsets, and especially `modules/renderer/templeRig.ts`'s geometric
+ *     front/temple classification, which reads model-local axes) sees a
+ *     model that already follows the convention.
+ *
+ * Omit it for models authored correctly (the whole `frame001`–`frame006`
+ * catalog). Derive the values with `scripts/derive-model-pretransform.mjs`.
+ */
+export interface ModelPreTransform {
+  /** Degrees about the model's X axis. Applied in Three.js's default 'XYZ' Euler order. */
+  rotationX: number;
+  /** Degrees about the model's Y axis — the usual one, for models built facing sideways. */
+  rotationY: number;
+  /** Degrees about the model's Z axis. */
+  rotationZ: number;
+  /** Translation in MODEL units (not mm), applied AFTER the rotation, to centre the frame. */
+  translateX: number;
+  /** Model units. Shifts the lens centre onto eye level (Y = 0). */
+  translateY: number;
+  /** Model units. Shifts the front plane of the lens onto Z = 0. */
+  translateZ: number;
+}
+
+/**
  * The sidecar JSON shipped alongside every `frameXXX.glb`.
  * All width/offset values are in millimeters unless noted; rotation values
  * are in degrees (authoring convenience) and converted to radians internally.
@@ -56,6 +90,12 @@ export interface CalibrationData {
   scaleX?: number;
   /** Optional depth (temple length) scale factor (defaults to 1.0 if omitted). */
   scaleZ?: number;
+  /**
+   * Optional one-time authoring fix applied inside the model group at load
+   * time — for GLBs that don't arrive on the renderer's axis convention.
+   * See `ModelPreTransform`.
+   */
+  modelPreTransform?: ModelPreTransform;
 }
 
 

@@ -34,6 +34,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { clone as cloneSkeletonHierarchy } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { FrameAsset, FrameManifestEntry } from '../../core/types/calibration.types';
 import { validateCalibrationData } from '../calibration/calibrationSchema';
 
@@ -160,12 +161,33 @@ export class ModelLoader {
    * that per-instance state (a future lens-tint feature, or simply this
    * instance's own transform) never mutates the cached template or any
    * other clone currently on screen.
+   *
+   * RIGGED MODELS need three.js's `SkeletonUtils.clone`, not `Object3D.clone`:
+   * `SkinnedMesh.copy` assigns `this.skeleton = source.skeleton`, so a plain
+   * clone renders through the TEMPLATE's bones — and the template is never
+   * added to a scene, so its bones sit frozen at their load-time transforms
+   * while `bindMatrixInverse` still cancels the clone's own world matrix. The
+   * model then draws at its raw authored coordinates, ignoring every tracking
+   * transform: for a wearable authored on an avatar's head, that's ~1.7m above
+   * the camera and behind it — i.e. it silently never appears. `SkeletonUtils`
+   * rebinds the clone to its own cloned bones, which do ride the model group.
    */
   private cloneTemplate(template: THREE.Group): THREE.Group {
-    const clone = template.clone(true);
+    let hasSkinnedMesh = false;
+    template.traverse((node) => {
+      if ((node as THREE.SkinnedMesh).isSkinnedMesh) hasSkinnedMesh = true;
+    });
+
+    const clone = hasSkinnedMesh
+      ? (cloneSkeletonHierarchy(template) as THREE.Group)
+      : template.clone(true);
+
     clone.traverse((node) => {
       const mesh = node as THREE.Mesh;
-      if ((mesh as THREE.Object3D).type === 'Mesh' && mesh.material) {
+      // `isMesh` rather than `type === 'Mesh'`, so skinned meshes get their own
+      // material instance too — otherwise a rigged frame would be the one
+      // catalog entry whose materials are still shared with the cached template.
+      if (mesh.isMesh && mesh.material) {
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
       }
     });
@@ -177,7 +199,9 @@ export class ModelLoader {
     if (!root) return;
     root.traverse((node) => {
       const mesh = node as THREE.Mesh;
-      if ((mesh as THREE.Object3D).type !== 'Mesh') return;
+      // `isMesh` covers SkinnedMesh too — a rigged template would otherwise
+      // never release its geometry/textures when the LRU cache evicts it.
+      if (!mesh.isMesh) return;
       mesh.geometry?.dispose();
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       materials.forEach((material) => this.disposeMaterial(material));

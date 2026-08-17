@@ -41,10 +41,18 @@ export interface UseCustomPngFrameResult {
 }
 
 /**
- * Conservative default calibration for a fresh upload — no sidecar JSON
- * exists yet, so these are reasonable starting values (matching what a new
- * catalog frame's authored JSON would start at) meant to be tuned live via
- * `CalibrationPanel` rather than assumed correct out of the box.
+ * Default calibration for a fresh PNG upload — no sidecar JSON exists for a
+ * user's own photo, so these are the starting values, still tunable live via
+ * `CalibrationPanel`.
+ *
+ * `offsetY`/`offsetZ` are not zeroed out: they're the values that came out of
+ * tuning real uploads, and they are systematic rather than per-photo. A glasses
+ * PHOTO is framed differently from a 3D model — it's cropped to the frame's
+ * own bounding box, so its centre sits at the middle of the lenses rather than
+ * at the bridge, which reads ~10mm high against the tracked nose bridge, and it
+ * needs more clearance off the face because a flat plane can't wrap around it.
+ * Starting from a fit that's roughly right beats starting from a fit that's
+ * reliably wrong in the same direction every time.
  */
 function makeDefaultCalibration(fileName: string): CalibrationData {
   return {
@@ -53,12 +61,14 @@ function makeDefaultCalibration(fileName: string): CalibrationData {
     bridgeWidth: 18,
     lensWidth: 54,
     offsetX: 0,
-    offsetY: 0,
-    offsetZ: 2,
+    offsetY: -10,
+    offsetZ: 8.5,
     rotationX: 0,
     rotationY: 0,
     rotationZ: 0,
-    defaultScale: 1.0,
+    defaultScale: 1,
+    scaleX: 1,
+    scaleZ: 1,
   };
 }
 

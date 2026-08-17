@@ -12,6 +12,10 @@
  *   - Owns one `ModelLoader` instance (lazy ref) for the component's lifetime.
  *   - On `entry` change: loads the calibration JSON + a fresh GLB clone,
  *     exposes the resulting `THREE.Group` plus loading/error state.
+ *   - Applies the frame's authored `modelPreTransform` (if any) to that clone
+ *     before exposing it, so vendor GLBs that aren't on the renderer's axis
+ *     convention are corrected once, at the only point where the geometry and
+ *     its calibration are both in hand — see `modelLoader/modelPreTransform`.
  *   - Calls `onCalibrationChange` (typically `useFrameLoop`'s
  *     `setActiveCalibration`) whenever the resolved calibration changes, so
  *     `CalibrationEngine` always has the right data for the frame currently
@@ -27,6 +31,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as THREE from 'three';
 import { ModelLoader } from '../modules/modelLoader/ModelLoader';
+import { applyModelPreTransform } from '../modules/modelLoader/modelPreTransform';
 import type { CalibrationData, FrameManifestEntry } from '../core/types/calibration.types';
 
 export interface UseGlassesModelResult {
@@ -66,6 +71,11 @@ export function useGlassesModel(
     Promise.all([loader.loadFrame(entry), loader.getModelInstance(entry)])
       .then(([asset, group]) => {
         if (cancelled) return;
+        // Correct a vendor GLB's authoring axes BEFORE the group reaches the
+        // scene — `templeRig` reads this group's model-local geometry, so it
+        // must never see the raw, un-rotated model. No-op for frames without
+        // an authored `modelPreTransform`.
+        applyModelPreTransform(group, asset.calibration.modelPreTransform);
         setModelGroup(group);
         setCalibration(asset.calibration);
         onCalibrationChange?.(asset.calibration);

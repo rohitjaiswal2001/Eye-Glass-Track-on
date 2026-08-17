@@ -1,0 +1,21 @@
+{
+  "frameId": "sunglasses",
+  "frameWidth": 142,
+  "bridgeWidth": 18,
+  "lensWidth": 62,
+  "offsetX": 0,
+  "offsetY": 0,
+  "offsetZ": 5,
+  "rotationX": 0,
+  "rotationY": 0,
+  "rotationZ": 0,
+  "defaultScale": 0.0354973,
+  "modelPreTransform": {
+    "rotationX": 0,
+    "rotationY": 90,
+    "rotationZ": 0,
+    "translateX": 0,
+    "translateY": 0.1656,
+    "translateZ": -1.0463
+  }
+}

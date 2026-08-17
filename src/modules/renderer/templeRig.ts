@@ -10,8 +10,8 @@
  *   effective length varies per user. This module reproduces exactly those
  *   degrees of freedom, and nothing else.
  *
- *   Every catalog GLB inspected (`frame001`–`frame006`) follows the same
- *   authoring convention: the front (rims/lenses/bridge/nose pads) sits near
+ *   Well-authored eyewear GLBs (including every frame `scripts/generate-sample-frames.ts`
+ *   produces) follow the same convention: the front (rims/lenses/bridge/nose pads) sits near
  *   Z=0, hinges sit almost exactly at Z=0, and each temple is 1-2 meshes
  *   extending backward (increasingly negative Z) from there — a straight
  *   "arm" segment attached at the hinge, optionally followed by a curved
@@ -29,7 +29,8 @@
  *
  *        pivot (at the hinge point; ROTATES → splay/drop)
  *        ├── lengthGroup (SCALES in Z → arm length, stretching away from
- *        │   └── arm mesh          the hinge, never from the model origin)
+ *        │   ├── arm mesh          the hinge, never from the model origin)
+ *        │   └── decoration riding on the arm (logo plates, branding text)
  *        └── tip/hook meshes (translated along the arm, never scaled,
  *                             preserving their curved shape)
  *
@@ -64,6 +65,24 @@ const TEMPLE_DEPTH_THRESHOLD_M = 0.02;
  * classifying those would reparent/scale a chunk that isn't actually one temple arm.
  */
 const CENTER_STRADDLE_TOLERANCE_M = 0.01;
+
+/**
+ * A temple side often ships more than two meshes: besides the arm and its
+ * curved ear tip, models carry DECORATION that sits alongside the arm — a logo
+ * plate, extruded branding text, a colour inlay. The two kinds must be handled
+ * oppositely when the arm resizes: a tip hangs off the END of the arm and must
+ * be translated (never scaled, or its hook deforms), while decoration is glued
+ * to the arm's flank and must ride WITH it (translating it slides the logo off
+ * the arm and onto the lens).
+ *
+ * They're told apart by overlap: a segment counts as trailing only if it lies
+ * essentially behind the arm's far edge, allowing an overlap of this fraction
+ * of the segment's own depth (real tips butt up against the arm end, sometimes
+ * a hair inside it). Everything else overlaps the arm's length and is treated
+ * as decoration. Ratio, not an absolute distance, because model units vary per
+ * asset — the catalog is authored in metres, vendor GLBs rarely are.
+ */
+const TRAILING_OVERLAP_RATIO = 0.25;
 
 /** Max outward/inward splay (yaw at the hinge), radians. Real hinges open a few degrees past straight; ±20° is generous. */
 const MAX_SPLAY_RAD = 0.35;
@@ -204,12 +223,22 @@ function buildSide(candidates: { mesh: THREE.Mesh; box: THREE.Box3 }[], root: TH
   // away from the hinge instead of from the model's shared origin.
   lengthGroup.attach(armEntry.mesh);
 
-  const trailing: TrailingSegment[] = rest.map(({ mesh }) => {
-    // Tips hang off the pivot (NOT lengthGroup) so they rotate with the arm's
-    // aim but are translated — never stretched — when the arm lengthens.
-    pivot.attach(mesh);
-    return { mesh, originalZ: mesh.position.z };
-  });
+  const trailing: TrailingSegment[] = [];
+  for (const entry of rest) {
+    const segmentDepth = entry.box.max.z - entry.box.min.z;
+    const isBehindArm = entry.box.max.z <= farEdgeZ + segmentDepth * TRAILING_OVERLAP_RATIO;
+
+    if (isBehindArm) {
+      // Tips hang off the pivot (NOT lengthGroup) so they rotate with the arm's
+      // aim but are translated — never stretched — when the arm lengthens.
+      pivot.attach(entry.mesh);
+      trailing.push({ mesh: entry.mesh, originalZ: entry.mesh.position.z });
+    } else {
+      // Decoration alongside the arm — same group as the arm itself, so it
+      // stays glued to the flank it was authored on. See TRAILING_OVERLAP_RATIO.
+      lengthGroup.attach(entry.mesh);
+    }
+  }
 
   return {
     pivot,

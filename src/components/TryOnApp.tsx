@@ -13,8 +13,10 @@
  *   - `useFrameLoop`: the imperative 60fps tracking pipeline.
  *   - `useFaceTracking`: coarse, low-frequency tracking-quality signal for UI.
  *   - Fetches `/models/manifest.json` (the frame catalog) once on mount.
- *   - `useGlassesModel` / `useCustomPngFrame`: two interchangeable model
- *     sources — a selected catalog GLB, or a user-uploaded PNG photo (via
+ *   - `useGlassesModel` / `useCustomGlbFrame` / `useCustomPngFrame`: three
+ *     interchangeable model sources — a selected catalog GLB, a user-uploaded
+ *     GLB/glTF (auto-oriented and auto-scaled by `autoFitModel`, since an
+ *     upload has no sidecar JSON), or a user-uploaded PNG photo (via
  *     `PngGlassesBuilder`, a flat tracked cutout) — switched between via
  *     `frameSource` state; downstream code (`GlassesScene`,
  *     `CalibrationEngine`) doesn't know or care which is active.
@@ -38,6 +40,7 @@ import { useFrameLoop } from '../hooks/useFrameLoop';
 import { useFaceTracking } from '../hooks/useFaceTracking';
 import { useGlassesModel } from '../hooks/useGlassesModel';
 import { useCustomPngFrame } from '../hooks/useCustomPngFrame';
+import { useCustomGlbFrame } from '../hooks/useCustomGlbFrame';
 import { RendererCore } from '../modules/renderer/RendererCore';
 import { PerformanceMonitor } from '../modules/performance/PerformanceMonitor';
 import { WebcamLayer } from './WebcamLayer';
@@ -85,12 +88,16 @@ export function TryOnApp() {
 
   const glassesModel = useGlassesModel(selectedEntry);
   const customPngFrame = useCustomPngFrame();
+  const customGlbFrame = useCustomGlbFrame();
 
-  // Two possible model sources: the selected catalog GLB, or a user-uploaded
-  // PNG. Both hooks expose the same shape (modelGroup + calibration), so the
-  // rest of the app (GlassesScene, CalibrationEngine via FrameManager) never
-  // needs to know or care which one is currently active.
-  const [frameSource, setFrameSource] = useState<'catalog' | 'custom'>('catalog');
+  // Three possible model sources: the selected catalog GLB, a user-uploaded
+  // GLB/glTF, or a user-uploaded PNG photo. All three hooks expose the same
+  // shape (modelGroup + calibration), so the rest of the app (GlassesScene,
+  // CalibrationEngine via FrameManager) never needs to know or care which one
+  // is currently active.
+  const [frameSource, setFrameSource] = useState<'catalog' | 'custom-png' | 'custom-glb'>('catalog');
+  const isCustomPng = frameSource === 'custom-png';
+  const isCustomGlb = frameSource === 'custom-glb';
 
   // Detect whether the active catalog entry is a PNG-only frame (no GLB).
   // These frames are rendered by PngFrameOverlay in 2D screen space rather
@@ -101,11 +108,12 @@ export function TryOnApp() {
     !!selectedEntry?.pngUrl &&
     !selectedEntry?.glbUrl;
 
-  const activeModelGroup = frameSource === 'custom' ? customPngFrame.modelGroup : glassesModel.modelGroup;
-  const baseCalibration = frameSource === 'custom' ? customPngFrame.calibration : glassesModel.calibration;
-  const activeFrameId = frameSource === 'custom' ? (customPngFrame.calibration?.frameId ?? null) : (selectedEntry?.frameId ?? null);
-  const activeError = frameSource === 'custom' ? customPngFrame.error : glassesModel.error;
-  const activeIsLoading = frameSource === 'custom' ? customPngFrame.isLoading : glassesModel.isLoading;
+  const activeSource = isCustomPng ? customPngFrame : isCustomGlb ? customGlbFrame : glassesModel;
+  const activeModelGroup = activeSource.modelGroup;
+  const baseCalibration = activeSource.calibration;
+  const activeFrameId = frameSource === 'catalog' ? (selectedEntry?.frameId ?? null) : (activeSource.calibration?.frameId ?? null);
+  const activeError = activeSource.error;
+  const activeIsLoading = activeSource.isLoading;
 
   const [overrides, setOverrides] = useState<CalibrationOverrides>(DEFAULT_CALIBRATION_OVERRIDES);
   useEffect(() => {
@@ -123,11 +131,14 @@ export function TryOnApp() {
     frameLoop.setActiveCalibration(effectiveCalibration);
   }, [effectiveCalibration, frameLoop]);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pngInputRef = useRef<HTMLInputElement | null>(null);
+  const modelInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSelectCatalogFrame = (entry: FrameManifestEntry) => {
-    if (frameSource === 'custom') {
+    if (frameSource !== 'catalog') {
+      // Free whichever upload was active — its GPU resources are ours to release.
       customPngFrame.clear();
+      customGlbFrame.clear();
       setFrameSource('catalog');
     }
     setSelectedEntry(entry);
@@ -137,8 +148,20 @@ export function TryOnApp() {
     const file = event.target.files?.[0];
     event.target.value = ''; // reset so re-selecting the same file still fires onChange
     if (!file) return;
+    customGlbFrame.clear();
     customPngFrame.uploadPng(file);
-    setFrameSource('custom');
+    setFrameSource('custom-png');
+  };
+
+  const handleModelUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    // Multi-select on purpose: a .gltf needs its .bin and textures, and a .glb
+    // with external textures needs those too — see UploadedModelLoader.
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    customPngFrame.clear();
+    customGlbFrame.uploadModel(files);
+    setFrameSource('custom-glb');
   };
 
   const [glCanvas, setGlCanvas] = useState<HTMLCanvasElement | null>(null);
@@ -217,6 +240,29 @@ export function TryOnApp() {
       {activeIsLoading && <CenteredMessage>Loading glasses…</CenteredMessage>}
       {activeError && <CenteredMessage>{activeError}</CenteredMessage>}
 
+      {/* Non-fatal upload warnings — the model IS on screen, it just may be
+          untextured or mis-oriented, so this must not block the view. */}
+      {isCustomGlb && customGlbFrame.notice && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxWidth: 'min(560px, calc(100vw - 32px))',
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'rgba(120,80,0,0.85)',
+            border: '1px solid rgba(255,200,80,0.5)',
+            color: '#ffe9b8',
+            fontSize: 12,
+            lineHeight: 1.45,
+          }}
+        >
+          ⚠ {customGlbFrame.notice}
+        </div>
+      )}
+
       {showDebug && (
         <DebugOverlay
           getLatestResult={frameLoop.getLatestResult}
@@ -258,19 +304,19 @@ export function TryOnApp() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
           <CaptureButton videoElement={camera.videoElement} glCanvas={glCanvas} mirrored={mirrorView} />
           <input
-            ref={fileInputRef}
+            ref={pngInputRef}
             type="file"
             accept="image/*"
             onChange={handlePngUpload}
             style={{ display: 'none' }}
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => pngInputRef.current?.click()}
             style={{
               padding: '10px 16px',
               borderRadius: 999,
               border: '1px solid rgba(255,255,255,0.3)',
-              background: frameSource === 'custom' ? 'rgba(79,157,255,0.25)' : 'transparent',
+              background: isCustomPng ? 'rgba(79,157,255,0.25)' : 'transparent',
               color: '#fff',
               cursor: 'pointer',
               fontSize: 13,
@@ -279,6 +325,49 @@ export function TryOnApp() {
           >
             📁 Upload Glasses PNG
           </button>
+          <input
+            ref={modelInputRef}
+            type="file"
+            accept=".glb,.gltf,.bin,image/*"
+            multiple
+            onChange={handleModelUpload}
+            style={{ display: 'none' }}
+          />
+          <button
+            onClick={() => modelInputRef.current?.click()}
+            style={{
+              padding: '10px 16px',
+              borderRadius: 999,
+              border: '1px solid rgba(255,255,255,0.3)',
+              background: isCustomGlb ? 'rgba(79,157,255,0.25)' : 'transparent',
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+            title="Upload a 3D model (.glb or .gltf). Select its .bin and texture files together with it if it has any — orientation and scale are detected automatically."
+          >
+            🕶 Upload 3D Model
+          </button>
+          {/* Orientation is detected from the model's shape, which is right for
+              almost every frame but can't be right for all of them — this is the
+              escape hatch when it lands upside down. */}
+          {isCustomGlb && customGlbFrame.modelGroup && (
+            <button
+              onClick={customGlbFrame.flipVertically}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 999,
+                border: '1px solid rgba(255,255,255,0.3)',
+                background: customGlbFrame.isFlipped ? 'rgba(79,157,255,0.25)' : 'transparent',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+              title="Turn the uploaded model upside down, if its orientation was detected wrong"
+            >
+              ⇅ Flip
+            </button>
+          )}
           <button
             onClick={() => setShowDebug((v) => !v)}
             style={{
